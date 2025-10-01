@@ -172,6 +172,7 @@ app.post('/respond', async (req, res) => {
 
     // Non-streaming response (stream: false)
     const data = await r.json();
+    console.log('[GPT] Response data:', JSON.stringify(data).substring(0, 500));
 
     // Handle function calls
     if (data?.tool_calls && data.tool_calls.length > 0) {
