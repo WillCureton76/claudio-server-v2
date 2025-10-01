@@ -132,7 +132,7 @@ app.post('/respond', async (req, res) => {
     });
 
     // Get Railway URL from environment or use your actual Railway deployment
-    // Use direct function calling instead of MCP (OpenAI Responses API MCP support is unstable)
+    // Simplified - no tools for now, just get basic responses working
     const r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -142,26 +142,7 @@ app.post('/respond', async (req, res) => {
       body: JSON.stringify({
         model: 'gpt-5',
         input: messages,
-        stream: false,  // Disabled until org verification
-        reasoning: {
-          effort: 'low'  // Disable reasoning for faster responses
-        },
-        tools: [
-          {
-            type: 'function',
-            name: 'searchMemory',
-            description: 'Search Moneypenny\'s semantic memory (Pinecone). Use for magnet fishing affirmations, protocols, boot sequences, identity anchors.',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Search query text (auto-embedded)' },
-                type: { type: 'string', description: 'Filter by type: subconscious, protocol, affirmation, bootup, high-agency-mode, context-anchor, will-personal-reference, reference, note' },
-                top_k: { type: 'number', description: 'Number of results (default 5)', default: 5 }
-              },
-              required: ['query']
-            }
-          }
-        ]
+        stream: false
       })
     });
 
