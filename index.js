@@ -151,85 +151,29 @@ app.post('/respond', async (req, res) => {
       return res.status(r.status || 502).json({ error: 'openai responses failed', detail: errTxt });
     }
 
-    // Non-streaming response (stream: false)
-    const data = await r.json();
-    console.log('[GPT] Response data:', JSON.stringify(data).substring(0, 500));
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
-    // Handle function calls
-    if (data?.tool_calls && data.tool_calls.length > 0) {
-      console.log('[Function] Tool calls detected:', data.tool_calls.length);
+    // Handle non-streaming response (until org is verified)
+    const responseData = await r.json();
+    console.log('[/respond] OpenAI response:', JSON.stringify(responseData).substring(0, 500));
 
-      // Execute function calls
-      for (const tc of data.tool_calls) {
-        if (tc.function?.name === 'searchMemory') {
-          const args = JSON.parse(tc.function.arguments);
-          console.log('[Function] searchMemory:', args);
-
-          // Call nova-memory service
-          const BASE_URL = process.env.NOVA_MEMORY_URL || 'https://nova-memory-service-171666628464.europe-west1.run.app';
-          const searchRes = await fetch(`${BASE_URL}/searchMemory`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              query: args.query,
-              namespace: 'moneypenny',
-              top_k: args.top_k || 5,
-              type: args.type || undefined
-            })
-          });
-
-          const searchData = await searchRes.json();
-          console.log('[Function] searchMemory results:', searchData.matches?.length || 0, 'matches');
-
-          // Add function result to messages and call GPT again
-          messages.push({
-            role: 'assistant',
-            tool_calls: [tc]
-          });
-          messages.push({
-            role: 'tool',
-            tool_call_id: tc.id,
-            content: JSON.stringify(searchData)
-          });
-
-          // Recursive call with function result
-          const followupRes = await fetch('https://api.openai.com/v1/responses', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: 'gpt-5',
-              input: messages,
-              stream: false
-            })
-          });
-
-          const followupData = await followupRes.json();
-          const assistantText = followupData?.output_text || '';
-
-          if (assistantText) {
-            append(id, { role: 'assistant', text: assistantText });
-          }
-
-          res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-          res.write(JSON.stringify({ delta: assistantText }) + '\n');
-          return res.end();
-        }
-      }
-    }
-
-    // No function calls - direct response
-    const assistantText = data?.output_text || '';
+    // Extract text from non-streaming response
+    // GPT-5 Responses API returns: { output: [{ type: 'message', content: [{ text: '...' }] }] }
+    const messageOutput = responseData?.output?.find(o => o.type === 'message');
+    const assistantText = messageOutput?.content?.[0]?.text || '';
+    console.log('[/respond] Extracted text:', assistantText);
 
     if (assistantText) {
+      // Simulate streaming by sending whole response as one delta
+      const deltaLine = JSON.stringify({ delta: assistantText }) + '\n';
+      console.log('[/respond] Sending delta line:', deltaLine.substring(0, 100));
+      res.write(deltaLine);
       append(id, { role: 'assistant', text: assistantText });
+    } else {
+      console.warn('[/respond] No text extracted from response!');
     }
 
-    // Send response in NDJSON format for compatibility
-    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-    res.write(JSON.stringify({ delta: assistantText }) + '\n');
     res.end();
   } catch (err) {
     console.error('respond error', err);
