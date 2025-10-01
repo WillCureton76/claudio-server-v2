@@ -232,4 +232,5 @@ app.listen(PORT, () => {
   console.log(`📡 WebSocket STT: ws://localhost:${PORT}/stt`);
   console.log(`🔊 Azure TTS: http://localhost:${PORT}/tts-azure`);
   console.log(`🤖 GPT-5 /boot and /respond ready`);
+  console.log(`🔌 MCP endpoints: /mcp, /providers, /health`);
 });
