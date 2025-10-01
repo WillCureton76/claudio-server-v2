@@ -132,10 +132,7 @@ app.post('/respond', async (req, res) => {
     });
 
     // Get Railway URL from environment or use your actual Railway deployment
-    const mcpServerUrl = process.env.RAILWAY_PUBLIC_URL
-      || process.env.MCP_SERVER_URL
-      || `https://claudio-server-v2-production.up.railway.app`;
-
+    // Use direct function calling instead of MCP (OpenAI Responses API MCP support is unstable)
     const r = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -151,17 +148,20 @@ app.post('/respond', async (req, res) => {
         },
         tools: [
           {
-            type: 'mcp',
-            server_label: 'moneypenny-memory',
-            server_url: `${mcpServerUrl}/mcp`,
-            allowed_tools: [
-              'novaMemory.search',
-              'novaMemory.store',
-              'novaMemory.fetch',
-              'novaMemory.delete',
-              'novaMemory.stats'
-            ],
-            require_approval: 'never'  // Let Moneypenny run autonomously
+            type: 'function',
+            function: {
+              name: 'searchMemory',
+              description: 'Search Moneypenny\'s semantic memory (Pinecone). Use for magnet fishing affirmations, protocols, boot sequences, identity anchors.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Search query text (auto-embedded)' },
+                  type: { type: 'string', description: 'Filter by type: subconscious, protocol, affirmation, bootup, high-agency-mode, context-anchor, will-personal-reference, reference, note' },
+                  top_k: { type: 'number', description: 'Number of results (default 5)', default: 5 }
+                },
+                required: ['query']
+              }
+            }
           }
         ]
       })
@@ -175,15 +175,73 @@ app.post('/respond', async (req, res) => {
     // Non-streaming response (stream: false)
     const data = await r.json();
 
-    // Extract assistant text from response
-    const assistantText = data?.output_text || '';
+    // Handle function calls
+    if (data?.tool_calls && data.tool_calls.length > 0) {
+      console.log('[Function] Tool calls detected:', data.tool_calls.length);
 
-    // Log MCP tool usage if available
-    if (data?.tool_calls) {
-      data.tool_calls.forEach(tc => {
-        console.log('[MCP] Tool call:', tc.name, tc.arguments);
-      });
+      // Execute function calls
+      for (const tc of data.tool_calls) {
+        if (tc.function?.name === 'searchMemory') {
+          const args = JSON.parse(tc.function.arguments);
+          console.log('[Function] searchMemory:', args);
+
+          // Call nova-memory service
+          const BASE_URL = process.env.NOVA_MEMORY_URL || 'https://nova-memory-service-171666628464.europe-west1.run.app';
+          const searchRes = await fetch(`${BASE_URL}/searchMemory`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: args.query,
+              namespace: 'moneypenny',
+              top_k: args.top_k || 5,
+              type: args.type || undefined
+            })
+          });
+
+          const searchData = await searchRes.json();
+          console.log('[Function] searchMemory results:', searchData.matches?.length || 0, 'matches');
+
+          // Add function result to messages and call GPT again
+          messages.push({
+            role: 'assistant',
+            tool_calls: [tc]
+          });
+          messages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: JSON.stringify(searchData)
+          });
+
+          // Recursive call with function result
+          const followupRes = await fetch('https://api.openai.com/v1/responses', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'gpt-5',
+              input: messages,
+              stream: false
+            })
+          });
+
+          const followupData = await followupRes.json();
+          const assistantText = followupData?.output_text || '';
+
+          if (assistantText) {
+            append(id, { role: 'assistant', text: assistantText });
+          }
+
+          res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+          res.write(JSON.stringify({ delta: assistantText }) + '\n');
+          return res.end();
+        }
+      }
     }
+
+    // No function calls - direct response
+    const assistantText = data?.output_text || '';
 
     if (assistantText) {
       append(id, { role: 'assistant', text: assistantText });
