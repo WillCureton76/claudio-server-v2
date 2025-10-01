@@ -149,18 +149,16 @@ app.post('/respond', async (req, res) => {
         tools: [
           {
             type: 'function',
-            function: {
-              name: 'searchMemory',
-              description: 'Search Moneypenny\'s semantic memory (Pinecone). Use for magnet fishing affirmations, protocols, boot sequences, identity anchors.',
-              parameters: {
-                type: 'object',
-                properties: {
-                  query: { type: 'string', description: 'Search query text (auto-embedded)' },
-                  type: { type: 'string', description: 'Filter by type: subconscious, protocol, affirmation, bootup, high-agency-mode, context-anchor, will-personal-reference, reference, note' },
-                  top_k: { type: 'number', description: 'Number of results (default 5)', default: 5 }
-                },
-                required: ['query']
-              }
+            name: 'searchMemory',
+            description: 'Search Moneypenny\'s semantic memory (Pinecone). Use for magnet fishing affirmations, protocols, boot sequences, identity anchors.',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Search query text (auto-embedded)' },
+                type: { type: 'string', description: 'Filter by type: subconscious, protocol, affirmation, bootup, high-agency-mode, context-anchor, will-personal-reference, reference, note' },
+                top_k: { type: 'number', description: 'Number of results (default 5)', default: 5 }
+              },
+              required: ['query']
             }
           }
         ]
