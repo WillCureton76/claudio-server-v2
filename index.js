@@ -145,7 +145,7 @@ app.post('/respond', async (req, res) => {
       body: JSON.stringify({
         model: 'gpt-5',
         input: messages,
-        stream: true,
+        stream: false,  // Disabled until org verification
         reasoning: {
           effort: 'low'  // Disable reasoning for faster responses
         },
@@ -167,54 +167,31 @@ app.post('/respond', async (req, res) => {
       })
     });
 
-    if (!r.ok || !r.body) {
+    if (!r.ok) {
       const errTxt = await r.text().catch(()=>'');
       return res.status(r.status || 502).json({ error: 'openai responses failed', detail: errTxt });
     }
 
-    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
+    // Non-streaming response (stream: false)
+    const data = await r.json();
 
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-    let assistantText = '';
+    // Extract assistant text from response
+    const assistantText = data?.output_text || '';
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const parts = buf.split('\n');
-      buf = parts.pop() || '';
-      for (const line of parts) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (!trimmed.startsWith('data:')) continue;
-        const jsonStr = trimmed.slice(5).trim();
-        if (jsonStr === '[DONE]') continue;
-        let ev;
-        try { ev = JSON.parse(jsonStr); } catch { continue; }
-        const t = ev?.type || ev?.event || '';
-
-        // Handle text deltas
-        if (t === 'response.output_text.delta' && typeof ev.delta === 'string') {
-          assistantText += ev.delta;
-          res.write(JSON.stringify({ delta: ev.delta }) + '\n');
-        }
-
-        // Log MCP tool calls (GPT is using memory!)
-        if (t === 'mcp_tool_call') {
-          console.log('[MCP] Tool call:', ev.tool_name, ev.arguments);
-        }
-
-        // Log MCP tool results
-        if (t === 'mcp_tool_result') {
-          console.log('[MCP] Tool result:', ev.tool_name, 'success:', !ev.error);
-        }
-      }
+    // Log MCP tool usage if available
+    if (data?.tool_calls) {
+      data.tool_calls.forEach(tc => {
+        console.log('[MCP] Tool call:', tc.name, tc.arguments);
+      });
     }
 
-    if (assistantText) append(id, { role: 'assistant', text: assistantText });
+    if (assistantText) {
+      append(id, { role: 'assistant', text: assistantText });
+    }
+
+    // Send response in NDJSON format for compatibility
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.write(JSON.stringify({ delta: assistantText }) + '\n');
     res.end();
   } catch (err) {
     console.error('respond error', err);
